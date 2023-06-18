@@ -1,0 +1,72 @@
+# Get all network adapters on the system
+$adapters = Get-NetAdapter
+# Find the adapters with InterfaceDescription set to "some_name"
+$targetAdapters = $adapters | Where-Object {$_.InterfaceDescription -like "*LAN7800*"}
+#if teaming already exist not called team_nic remove it
+$teaming_name = "team_nic"
+$teaming_driver = "Microsoft Network Adapter Multiplexor Driver"
+$vmswitch_name = "ext-vSW"
+
+
+# Save the adapter names to variables
+$nic1 = $targetAdapters[0].Name
+$nic2 = $targetAdapters[1].Name
+
+#check if the team nic is exist in the network adapters
+[bool] $flag1 = $false
+foreach ($i in $adapters){
+    if ($i.name -eq $teaming_name){
+        [bool] $flag1 = $true
+        continue
+    }
+} 
+# Check if we found exactly two adapters with the target description
+if ($targetAdapters.Count -ne 2) {
+    Write-Error "Expected to find 2 network adapters, but found $($targetAdapters.Count)"
+    return
+}
+
+#check if there is a virtual switch called ext
+$ext_vm_sw = Get-VMSwitch
+$filtered_nic = $ext_vm_sw.name | Select-String -Pattern "ext-vSW" -CaseSensitive -SimpleMatch
+$filtered_nic = $filtered_nic -replace " ", ""
+[bool] $flag2 = $false
+[bool] $flag3 = $false
+
+foreach ($j in $ext_vm_sw){
+    if ($j.name -eq $filtered_nic){
+        [bool] $flag2 = $true
+        if($j.NetAdapterInterfaceDescription -eq $teaming_driver){
+            [bool] $flag3 = $true
+            continue
+        }
+        continue
+    }
+}
+
+#find a way to automate this code:
+if (([bool] $flag1 -eq $false) -and ([bool] $flag2 -eq $false) -and ([bool] $flag3 -eq $false)){
+    New-NetSwitchTeam -Name $teaming_name -TeamMembers $nic1, $nic2
+    Start-Sleep 10
+    New-VMSwitch -Name ext-vSW -NetAdapterName $teaming_name -AllowManagementOS $true
+    exit
+}
+if (([bool] $flag1 -eq $false) -and ([bool] $flag2 -eq $true)){
+    New-NetSwitchTeam -Name $teaming_name -TeamMembers $nic1, $nic2
+    Set-VMSwitch -Name $vmswitch_name -SwitchType External -NetAdapterName $teaming_name 
+    exit
+}
+if (([bool] $flag1 -eq $true) -and ([bool] $flag2 -eq $true) -and ([bool] $flag3 -eq $false)){
+    Set-VMSwitch -Name $ext_vm_sw -NetAdapterName $teaming_name 
+    exit
+}
+if (([bool] $flag1 -eq $true) -and ([bool] $flag2 -eq $false) -and ([bool] $flag3 -eq $false) ){
+    New-VMSwitch -Name ext-vSW -NetAdapterName $teaming_name -AllowManagementOS $true
+    exit
+}
+
+if (([bool] $flag1 -eq $true) -and ([bool] $flag2 -eq $true) -and ([bool] $flag3 -eq $true)){
+    exit
+}
+
+#add test to check if the nic is internal
