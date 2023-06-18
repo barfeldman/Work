@@ -1,0 +1,106 @@
+$var = get-pnpdevice -class ports -status UNKNOWN
+foreach ($port in $var)
+{
+    $instanceid = $port.instanceID
+    pnputil /remove-device $instanceid
+}
+   #find the COMS that connceted from SmartHUB
+    $ComPort = get-pnpdevice -class Ports | Where-Object {  $_.Status -eq 'OK' -and $_.instanceID -like "FTDIBUS\VID_0403+PID_6015+*" }  | Select-Object -ExpandProperty Name | ForEach-Object { $_ -replace ".*\((COM\d+)\)", '$1' }
+    #get the avialbe serialcoms in Windows
+    $DeviceVCPPath = "HKLM:\Hardware\DEVICEMAP\SERIALCOMM"
+    $DeviceVCP = Get-ItemProperty -Path $DeviceVCPPath -Name '\Device\VCP*' 
+    #Write-Host $DeviceVCP "is defined in the text "
+
+
+#Set the path to the FTDIBUS folder - smarthub com settings folder
+$regpath = "HKLM:\SYSTEM\CurrentControlSet\Enum\FTDIBUS" 
+
+#get the sub-files in the path
+$ComPortDevices = Get-ChildItem -Path $regpath 
+
+#SetCounters - Counter 20 for the COM and counter INC for the PVC index
+$Counter = 20
+
+#Get all COM in use un specefic use 
+foreach ($ComPortDevice in $ComPortDevices)
+ {
+    $Inc = 0
+    #Get the parameter to see the PortName (number) in each folder 
+    $DeviceParamsPath = Join-Path -Path $ComPortDevice.PSPath -ChildPath "0000\Device Parameters"
+    $DeviceParam = Get-ItemProperty -Path $DeviceParamsPath
+    #Get the display name 
+    $DeviceParamDisplayPath = Join-Path -Path $ComPortDevice.PSPath -ChildPath "0000"
+    $DisplayParam = Get-ItemProperty -Path $DeviceParamDisplayPath
+    #Sum of all the functions 
+    $OldComPort = $DeviceParam.PortName
+    $DisplayPort = $DisplayParam.FriendlyName 
+    
+    
+    Write-Host "Now working on $Displayport Device manager COM"
+   
+ #Change Type to arry from OBJ with ONLY the relevant values in COM*
+
+    $Arr = ($DeviceVCP.PSObject.Properties).value -like "COM*"
+
+
+    foreach ($Compare in $Arr )
+    {
+
+        try 
+        {
+            $Compare = Get-ItemPropertyValue -Path $DeviceVCPPath -Name "\Device\VCP$Inc" 
+            if ($OldComPort -eq $Compare)
+            {
+                Write-Host "Entered Compare"
+                Write-Host "Adjusting PortNum"
+                Set-ItemProperty -path $DeviceParamsPath -Name "PortName" -Value "COM$Counter"
+                Write-Host "Adjusting Frinedly name"
+                Set-ItemProperty -Path $DeviceParamDisplayPath -Name "FriendlyName"  -Value "USB Serial Port (COM $Counter)"
+               # Removed due to issue casuing - making twice change : Write-Host "Adjusting VCP COM"
+               # Removed due to issue casuing - making twice change : Set-ItemProperty -path $DeviceVCPPath -Name "\Device\VCP$Inc" -Value "COM$Counter"
+                Write-Host "Assigned to COM $counter"
+                $Counter++
+
+                
+
+                
+                
+            }
+
+            $Inc++
+            
+
+        }
+        catch 
+        {
+            
+        }
+           
+         
+    }
+       
+   
+      
+           #Allignment of "USB Serial Port (Com X ) to the actual port "
+        #   Write-Host "for:" $OldComPort "the display name is" $DisplayPort
+           Write-Host " ____________________"
+
+    }
+        
+
+        
+       
+
+
+
+
+    
+    
+
+
+
+
+   
+    
+
+        
