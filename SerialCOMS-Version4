@@ -1,0 +1,131 @@
+######Refresh script ###########
+
+#Sets sleep for 20 secounds , so all the devices will be active and initialized
+Start-Sleep -Seconds 20
+#Removes the devices that are unactive - previous devices.
+$var = get-pnpdevice -class Ports | Where-Object {  $_.Status -eq 'UNKNOWN' -and $_.instanceID -like "FTDIBUS\VID_0403+PID_6015+*" } 
+foreach ($port in $var){
+    try{
+        $instanceid = $port.instanceID
+    pnputil /remove-device $instanceid
+
+    }
+    catch{
+        Write-Host "Error accured while trying to delete"
+    }
+}
+
+#Enviourment Variables
+
+#Get the physical connected ComPort to the PC - after filter 
+$ConnectedComPort =get-pnpdevice -class Ports | Where-Object {  $_.Status -eq 'OK' -and $_.instanceID -like "FTDIBUS\VID_0403+PID_6015+*" }  | Select-Object -ExpandProperty Name | ForEach-Object { $_ -replace ".*\((COM\d+)\)", '$1' }
+
+#Device VCP Path
+$DeviceVCPPath ="HKLM:\Hardware\DEVICEMAP\SERIALCOMM"
+
+#Get the VCP list 
+$DeviceVCP = Get-ItemProperty -Path $DeviceVCPPath -Name '\Device\VCP*' 
+
+#Set path to FTDIBUS folder in regedit.
+$regpath ="HKLM:\SYSTEM\CurrentControlSet\Enum\FTDIBUS" 
+
+#get the sub-files in the path
+$ComPortDevices =Get-ChildItem -Path $regpath 
+
+
+
+
+
+# Counts the amount of the VCP connections (should be equal to 4)
+$CheckCounter = 0
+$Arr = ($DeviceVCP.PSObject.Properties).value -like "COM*"
+foreach ($VCPDevice in $Arr){
+    
+    $CheckCounter++
+    
+}
+if($CheckCounter -ne 4){
+    Write-Host "Missmatch in the amount of connected devices , script will restart"
+    
+    Write-Host "Removing all COM - resetting the COM ports. "
+
+    $removedCom = get-pnpdevice -class Ports | Where-Object {  $_.instanceID -like "FTDIBUS\VID_0403+PID_6015+*" } 
+foreach ($ComDeviceRemove in $removedCom){
+    try{
+        $instanceidRemove = $ComDeviceRemove.instanceID
+    pnputil /remove-device $instanceidRemove
+
+    }
+    catch{
+        Write-Host "no devices were found to remove "
+
+    }
+
+    
+}
+    Invoke-Expression -Command "$PSCommandPath" #Please Fill the correct patg.
+    Exit
+}
+
+#Handles the counter and the matching info
+
+
+#Array Run one time path - Displays the COM in Device VCP
+$ArrRun = ($DeviceVCP.PSObject.Properties).value -like "COM*"
+$Counter = 20
+Write-Host "Counter is at " $Counter "Before starting"
+for ($i = 0; $i -le $ArrRun.Count; $i++) {
+  
+    foreach ($ComPortDevice in $ComPortDevices)
+ {
+   
+    #Get the parameter to see the PortName (number) in each folder 
+    $DeviceParamsPath = Join-Path -Path $ComPortDevice.PSPath -ChildPath "0000\Device Parameters"
+    $DeviceParam = Get-ItemProperty -Path $DeviceParamsPath
+    #Get the display name inside the folder 
+    $DeviceParamDisplayPath = Join-Path -Path $ComPortDevice.PSPath -ChildPath "0000"
+    $DisplayParam = Get-ItemProperty -Path $DeviceParamDisplayPath
+    #Sum of all the functions 
+    $PhysicalComConnection = $DeviceParam.PortName
+    $DisplayPort = $DisplayParam.FriendlyName
+
+     #Modify the following COM if there is a match.\
+     if($ArrRun[$i] -eq $PhysicalComConnection){
+
+        if ($Counter -le 24)
+        {
+            Write-Host " There is a match between the" $ArrRun[$i] "to" $PhysicalComConnection
+            Write-Host "Calibrating the COM accordingly..."
+            Set-ItemProperty -Path $DeviceParamsPath -Name "PortName" -Value "COM$Counter"
+            Write-Host "Hacked and changed to the port to  $PhysicalComConnection"
+            Write-Host " Modifying the name to the propper one"
+            Set-ItemProperty -Path $DeviceParamDisplayPath -Name "FriendlyName" -Value "USB Serial Port (COM$Counter)"
+            
+
+            #Modifying the VCP list accordingly...
+            Write-Host "Modifing the VCP accordingly"
+            Set-ItemProperty -path $DeviceVCPPath -Name "\Device\VCP$i" -Value "COM$Counter"
+            
+            Write-Host "counter is at $Counter"
+            $Counter++
+            break
+
+
+
+        }
+        else {
+            Write-Host "################# "
+
+            Write-Host "exceeding the COM range "
+          
+        }
+
+     }
+     else {
+        
+        Write-Host "there is no match"
+     }
+
+}   
+
+}
