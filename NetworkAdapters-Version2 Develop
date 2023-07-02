@@ -1,11 +1,12 @@
 # Get all network adapters on the system
 $adapters = Get-NetAdapter
-# Find the adapters with InterfaceDescription set to "LAN7800"
+# Find the adapters with InterfaceDescription set to "some_name"
 $targetAdapters = $adapters | Where-Object {$_.InterfaceDescription -like "*LAN7800*"}
 #if teaming already exist not called team_nic remove it
 $teaming_name = "team_nic"
 $teaming_driver = "Microsoft Network Adapter Multiplexor Driver"
 $vmswitch_name = "ext-vSW"
+$desiredSwitchType = "External"
 
 
 # Save the adapter names to variables
@@ -17,33 +18,14 @@ $nic2 = $targetAdapters[1].Name
 foreach ($i in $adapters){
     if ($i.name -eq $teaming_name){
         [bool] $flag1 = $true
-
         continue
     }
-}
-
-# Run the Get-NetSwitchTeam command and save the output as a string
-$output = Get-NetSwitchTeam | Out-String
-
-# Remove newline characters from the output string
-$output = $output -replace "[\r\n]+", ""
-
-# Extract member names
-$memberNames = $output -split 'Members : {', 2 | Select-Object -Last 1
-$memberNames = $memberNames.TrimEnd('}')
-
-# Display member names
-$member1, $member2 = $memberNames -split ', '
-Write-Host $member1
-Write-Host $member2
-
-
+} 
 # Check if we found exactly two adapters with the target description
 if ($targetAdapters.Count -ne 2) {
     Write-Error "Expected to find 2 network adapters, but found $($targetAdapters.Count)"
     return
 }
-
 
 #check if there is a virtual switch called ext
 $ext_vm_sw = Get-VMSwitch
@@ -53,6 +35,8 @@ $filtered_nic = $filtered_nic -replace " ", ""
 [bool] $flag3 = $false
 
 foreach ($j in $ext_vm_sw){
+    Write-Host $j #debug
+    Read-Host 'brake' #debug
     if ($j.name -eq $filtered_nic){
         [bool] $flag2 = $true
         if($j.NetAdapterInterfaceDescription -eq $teaming_driver){
@@ -62,47 +46,54 @@ foreach ($j in $ext_vm_sw){
         continue
     }
 }
-#case: have to create teaming nic, create vmswitch, associate the teaming to virtual switch
+#debug
+Read-Host $flag1 $flag2 $flag3
 if (([bool] $flag1 -eq $false) -and ([bool] $flag2 -eq $false) -and ([bool] $flag3 -eq $false)){
-    New-NetSwitchTeam -Name $teaming_name -TeamMembers "$nic1", "$nic2"
+    write-host '1'
+    Remove-netswitchteam "*"
+    New-NetSwitchTeam -Name $teaming_name -TeamMembers $nic1, $nic2
+    Write-Host "Teaming nic created"
     Start-Sleep 10
-    New-VMSwitch -Name ext-vSW -NetAdapterName $teaming_name -AllowManagementOS $true
+    New-VMSwitch -Name ext-vSW -NetAdapterName 'team_nic' -AllowManagementOS $true
     exit
 }
-#case: have to create teaming nic, associate the teaming to virtual switch that already exist
 if (([bool] $flag1 -eq $false) -and ([bool] $flag2 -eq $true)){
-    New-NetSwitchTeam -Name $teaming_name -TeamMembers "$nic1", "$nic2"
-    Set-VMSwitch -Name $vmswitch_name -SwitchType External -NetAdapterName $teaming_name 
+    write-host '2'
+    Remove-netswitchteam "*"
+    New-NetSwitchTeam -Name $teaming_name -TeamMembers $nic1, $nic2
+        Read-Host "brake"
+        # Remove the existing virtual switch
+        Remove-VMSwitch -Name $vmswitch_name -Force
+
+        # Create a new virtual switch with the desired switch type
+        New-VMSwitch -Name ext-vSW -NetAdapterName 'team_nic' -AllowManagementOS $true 
+
     exit
-}
-#case: there is teaming nic and virutal switch exist but the teaming nic is not associate to virtual switch
+    }
+
 if (([bool] $flag1 -eq $true) -and ([bool] $flag2 -eq $true) -and ([bool] $flag3 -eq $false)){
-    if (($nic1 -eq $member1 -or $nic1 -eq $member2) -and($nic2 -eq $member1 -or $nic2 -eq $member2)){
-        Remove-NetSwitchTeam "*"
-        Start-Sleep 10
-        New-NetSwitchTeam -Name $teaming_name -TeamMembers "$member1", "$member2"
-    }
-    Set-VMSwitch -Name $ext_vm_sw -NetAdapterName $teaming_name 
+    write-host '3'
+    Remove-VMSwitch -Name $vmswitch_name -Force
+    Start-Sleep 5
+    New-VMSwitch -Name ext-vSW -NetAdapterName 'team_nic' -AllowManagementOS $true
     exit
 }
-#case: there is teaming nic but there is not virutal switch
 if (([bool] $flag1 -eq $true) -and ([bool] $flag2 -eq $false) -and ([bool] $flag3 -eq $false) ){
-    if (($nic1 -eq $member1 -or $nic1 -eq $member2) -and($nic2 -eq $member1 -or $nic2 -eq $member2)){
-        Remove-NetSwitchTeam "*"
-        Start-Sleep 10
-        New-NetSwitchTeam -Name $teaming_name -TeamMembers "$member1", "$member2"
-    }
-    New-VMSwitch -Name ext-vSW -NetAdapterName $teaming_name -AllowManagementOS $true
+    write-host '4'
+    Remove-VMSwitch -Name $vmswitch_name -Force
+    Start-Sleep 5
+    New-VMSwitch -Name ext-vSW -NetAdapterName 'team_nic' -AllowManagementOS $true 
     exit
 }
-#case: there are teaming nic and virutal switch
+
 if (([bool] $flag1 -eq $true) -and ([bool] $flag2 -eq $true) -and ([bool] $flag3 -eq $true)){
+    write-host '5'
     exit
 }
 
 #add test to check if the nic is internal
-/#
+
+
 #flag1 = true if there is teaming nic and false if not
 #flag2 = true if there is virtual switch called ext-vSW and false if not
 #flag3 = true if the teaming nic is associated to virtual switch called ext and false if not
-#/
